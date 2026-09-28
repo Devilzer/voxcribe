@@ -5,6 +5,7 @@ import type { ASRCapabilities, ASRConfig, AudioInput, Transcript } from './types
  * The rest of the app only talks to engines through `ASRManager`.
  *
  * Implementations: WhisperCppEngine (whisper.cpp), later ParakeetEngine (NeMo-Speech.cpp).
+ * `initialize` validates the model/runtime; `dispose` must stop any native work.
  */
 export interface ASREngine {
   /** Matches `ModelInfo.engine`. */

@@ -76,6 +76,8 @@ async function bootstrap(): Promise<void> {
   });
 
   registerIpcHandlers({ services, shortcuts, getMainWindow: () => mainWindow });
+  // Model manager → renderer: push progress events instead of polling.
+  services.models.onProgress((progress) => send(IPC_EVENTS.MODEL_DOWNLOAD_PROGRESS, progress));
 
   mainWindow = openMainWindow();
 
@@ -105,6 +107,8 @@ async function bootstrap(): Promise<void> {
   app.on('will-quit', () => {
     void shortcuts.unregister();
     void services.asr.dispose();
+    // Aborting deletes the .part files; anything left is cleaned at next start.
+    for (const model of services.registry.list()) void services.models.cancelDownload(model.id);
     tray?.destroy();
   });
 }

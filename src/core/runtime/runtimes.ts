@@ -7,9 +7,9 @@ export const NATIVE_RUNTIMES: readonly NativeRuntimeDefinition[] = [
   {
     id: WHISPER_CPP_RUNTIME_ID,
     name: 'whisper.cpp',
-    // TODO(whisper.cpp): decide between `whisper-cli` (one-shot) and `whisper-server` (warm).
     executableName: 'whisper-cli',
-    version: undefined,
+    // Must match WHISPER_CPP_VERSION in scripts/build-whisper-cpp.sh.
+    version: 'v1.9.4',
   },
   // TODO(parakeet): enable once NeMo-Speech.cpp binaries are built.
   // { id: NEMO_SPEECH_CPP_RUNTIME_ID, name: 'NeMo-Speech.cpp', executableName: 'nemo-speech' },

@@ -36,10 +36,19 @@ const api: VoxcribeAPI = {
   },
   transcription: {
     transcribe: () => invoke(IPC_CHANNELS.TRANSCRIPTION_TRANSCRIBE),
+    transcribeFile: (fileId) => invoke(IPC_CHANNELS.TRANSCRIPTION_TRANSCRIBE_FILE, fileId),
+  },
+  files: {
+    selectAudio: () => invoke(IPC_CHANNELS.FILES_SELECT_AUDIO),
   },
   models: {
     list: () => invoke(IPC_CHANNELS.MODELS_LIST),
     getInstalled: () => invoke(IPC_CHANNELS.MODELS_INSTALLED),
+    download: (modelId) => invoke(IPC_CHANNELS.MODELS_DOWNLOAD, modelId),
+    cancelDownload: (modelId) => invoke(IPC_CHANNELS.MODELS_CANCEL_DOWNLOAD, modelId),
+    delete: (modelId) => invoke(IPC_CHANNELS.MODELS_DELETE, modelId),
+    getDownloadProgress: (modelId) => invoke(IPC_CHANNELS.MODELS_GET_DOWNLOAD_PROGRESS, modelId),
+    setActive: (modelId) => invoke(IPC_CHANNELS.MODELS_SET_ACTIVE, modelId),
   },
   settings: {
     get: () => invoke(IPC_CHANNELS.SETTINGS_GET),
@@ -55,6 +64,7 @@ const api: VoxcribeAPI = {
   events: {
     onDictationToggle: (listener) => subscribe(IPC_EVENTS.DICTATION_TOGGLE, listener),
     onNavigate: (listener) => subscribe(IPC_EVENTS.NAVIGATE, listener),
+    onModelDownloadProgress: (listener) => subscribe(IPC_EVENTS.MODEL_DOWNLOAD_PROGRESS, listener),
   },
 };
 

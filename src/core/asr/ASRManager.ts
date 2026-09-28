@@ -1,6 +1,6 @@
-import { ASRError, VoxcribeError, ModelError } from '../errors';
+import { ASRError, ModelError, VoxcribeError } from '../errors';
 import type { Logger } from '../logging/Logger';
-import type { ModelManager } from '../models/types';
+import type { ModelInfo, ModelManager } from '../models/types';
 import type { ASREngine } from './ASREngine';
 import type { ASRConfig, AudioInput, Transcript } from './types';
 
@@ -11,14 +11,14 @@ export interface ASRManagerDeps {
 
 /**
  * Single entry point for speech recognition. Owns the registered engines,
- * the active engine/model selection and the engine lifecycle.
+ * the active model and the engine lifecycle. Transcriptions run one at a time.
  */
 export class ASRManager {
   private readonly engines = new Map<string, ASREngine>();
-  private activeEngineId: string | null = null;
-  private selectedModelId: string | null = null;
-  /** Model currently loaded into the active engine. */
-  private loadedModelId: string | null = null;
+  private activeModelId: string | null = null;
+  /** Engine + model path currently initialized. */
+  private loaded: { engine: ASREngine; modelPath: string } | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: ASRManagerDeps) {}
 
@@ -40,82 +40,96 @@ export class ASRManager {
     return engine;
   }
 
-  getActiveEngine(): ASREngine | null {
-    return this.activeEngineId ? this.getEngine(this.activeEngineId) : null;
+  getActiveModelId(): string | null {
+    return this.activeModelId;
   }
 
-  getSelectedModelId(): string | null {
-    return this.selectedModelId;
-  }
-
-  async setActiveEngine(id: string): Promise<void> {
-    const engine = this.getEngine(id);
-    if (this.activeEngineId === engine.id) return;
-    await this.disposeActive();
-    this.activeEngineId = engine.id;
-  }
-
-  /** Selects a model and switches to the engine that can run it. Loading is lazy. */
-  async selectModel(modelId: string): Promise<void> {
+  /** Sets the active model (or clears it). Validates it can run; does not require it to be installed. */
+  async selectModel(modelId: string | null): Promise<void> {
+    if (modelId === null) {
+      await this.unload();
+      this.activeModelId = null;
+      return;
+    }
     const model = this.deps.modelManager.getModel(modelId);
-    if (model.availability !== 'available') {
-      throw new ModelError('MODEL_NOT_AVAILABLE', `Model "${modelId}" is not available yet`, {
-        details: { modelName: model.name },
-      });
-    }
-    if (!this.engines.has(model.engine)) {
-      throw new ModelError('MODEL_ENGINE_MISMATCH', `No engine "${model.engine}" for model "${modelId}"`, {
-        details: { modelName: model.name },
-      });
-    }
-    await this.setActiveEngine(model.engine);
-    if (this.selectedModelId !== modelId) {
-      this.selectedModelId = modelId;
-      this.loadedModelId = null;
+    this.assertRunnable(model);
+    if (this.activeModelId !== modelId) {
+      await this.unload();
+      this.activeModelId = modelId;
     }
   }
 
-  /** Loads the selected model into the active engine. */
-  async initialize(): Promise<void> {
-    const engine = this.getActiveEngine();
-    const modelId = this.selectedModelId;
-    if (!engine || !modelId) {
-      throw new ASRError('ASR_NO_MODEL_SELECTED', 'Select a model before initializing ASR');
+  /** Throws the user-facing reason why transcription can't start (no model, not installed, ...). */
+  async assertReady(): Promise<ModelInfo> {
+    if (!this.activeModelId) {
+      throw new ASRError('ASR_NO_MODEL_SELECTED', 'No active model');
     }
-    if (this.loadedModelId === modelId && engine.isInitialized()) return;
+    const model = this.deps.modelManager.getModel(this.activeModelId);
+    this.assertRunnable(model);
+    if (!model.installed) {
+      throw new ModelError('MODEL_NOT_INSTALLED', `${model.id} is not installed`, { details: { modelName: model.name } });
+    }
+    return model;
+  }
 
-    const model = this.deps.modelManager.getModel(modelId);
-    const modelPath = this.deps.modelManager.getModelPath(modelId);
-    this.deps.logger.info(`Initializing ${engine.id} with ${modelId}`, { modelPath });
+  transcribe(audio: AudioInput, config?: Partial<ASRConfig>): Promise<Transcript> {
+    const run = this.queue.then(() => this.transcribeNow(audio, config));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  async dispose(): Promise<void> {
+    await this.unload();
+    this.activeModelId = null;
+  }
+
+  private async transcribeNow(audio: AudioInput, config?: Partial<ASRConfig>): Promise<Transcript> {
+    // 1–2. Active model exists and is installed.
+    const model = await this.assertReady();
+    // 3. Resolve the verified model file.
+    const modelPath = await this.deps.modelManager.getModelPath(model.id);
+    if (!modelPath) {
+      throw new ModelError('MODEL_NOT_INSTALLED', `${model.id} is not installed`, { details: { modelName: model.name } });
+    }
+    const engine = this.getEngine(model.engine);
+
     try {
-      await engine.initialize(modelPath);
+      // 4. Initialize (once per engine + model).
+      if (this.loaded?.engine !== engine || this.loaded.modelPath !== modelPath || !engine.isInitialized()) {
+        await this.unload();
+        this.deps.logger.info(`Initializing ${engine.id} with ${model.id}`);
+        await engine.initialize(modelPath);
+        this.loaded = { engine, modelPath };
+      }
+      // 5–6. Transcribe.
+      const transcript = await engine.transcribe(audio, config);
+      return { ...transcript, engineId: engine.id, modelId: model.id };
     } catch (error) {
       if (error instanceof VoxcribeError) throw error.withDetails({ modelName: model.name });
-      throw new ASRError('ASR_ENGINE_NOT_INITIALIZED', `Failed to initialize ${engine.id}`, {
+      throw new ASRError('ASR_TRANSCRIPTION_FAILED', `Transcription with ${engine.id} failed`, {
         cause: error,
         details: { modelName: model.name },
       });
     }
-    this.loadedModelId = modelId;
   }
 
-  async transcribe(audio: AudioInput, config?: Partial<ASRConfig>): Promise<Transcript> {
-    await this.initialize();
-    const engine = this.getActiveEngine();
-    if (!engine) throw new ASRError('ASR_ENGINE_NOT_INITIALIZED', 'No active ASR engine');
-
-    const transcript = await engine.transcribe(audio, config);
-    return { ...transcript, engineId: engine.id, modelId: this.selectedModelId ?? undefined };
+  private assertRunnable(model: ModelInfo): void {
+    if (model.availability !== 'available') {
+      throw new ModelError('MODEL_NOT_AVAILABLE', `Model "${model.id}" is not available yet`, {
+        details: { modelName: model.name },
+      });
+    }
+    if (!this.engines.has(model.engine)) {
+      throw new ModelError('MODEL_ENGINE_MISMATCH', `No engine "${model.engine}" for model "${model.id}"`, {
+        details: { modelName: model.name },
+      });
+    }
   }
 
-  async dispose(): Promise<void> {
-    await this.disposeActive();
-    this.activeEngineId = null;
-  }
-
-  private async disposeActive(): Promise<void> {
-    const engine = this.getActiveEngine();
-    if (engine) await engine.dispose();
-    this.loadedModelId = null;
+  /** 7. Release native resources. */
+  private async unload(): Promise<void> {
+    const loaded = this.loaded;
+    this.loaded = null;
+    if (loaded) await loaded.engine.dispose();
   }
 }

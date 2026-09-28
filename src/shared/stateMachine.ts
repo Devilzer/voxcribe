@@ -4,16 +4,17 @@ import type { AppState } from './types';
  * Allowed transitions of the dictation state machine.
  *
  * idle → recording → processing (VAD) → transcribing → [cleaning] → [inserting] → idle
+ * idle → processing is the file-transcription entry (no recording step).
  * Any active state can fail into `error`; `error` can be dismissed or retried.
  */
 export const APP_STATE_TRANSITIONS: Readonly<Record<AppState, readonly AppState[]>> = {
-  idle: ['recording', 'error'],
+  idle: ['recording', 'processing', 'error'],
   recording: ['processing', 'idle', 'error'],
   processing: ['transcribing', 'idle', 'error'],
   transcribing: ['cleaning', 'inserting', 'idle', 'error'],
   cleaning: ['inserting', 'idle', 'error'],
   inserting: ['idle', 'error'],
-  error: ['idle', 'recording'],
+  error: ['idle', 'recording', 'processing'],
 };
 
 export function canTransition(from: AppState, to: AppState): boolean {

@@ -31,8 +31,10 @@ export class PassthroughVAD implements VoiceActivityDetector {
   async initialize(): Promise<void> {}
 
   async process(audio: AudioInput): Promise<VADResult> {
-    const end = audio.durationMs / 1000;
-    return { hasSpeech: audio.durationMs > 0, regions: [{ start: 0, end }], audio };
+    const durationMs = audio.durationMs ?? 0;
+    // Files have unknown length here; let the engine decide.
+    const hasSpeech = audio.kind === 'file' || durationMs > 0;
+    return { hasSpeech, regions: [{ start: 0, end: durationMs / 1000 }], audio };
   }
 
   async dispose(): Promise<void> {}

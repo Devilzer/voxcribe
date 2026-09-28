@@ -16,3 +16,8 @@ resources/binaries/*
 *.gguf
 *.onnx
 *.nemo
+
+# whisper.cpp build cache and local test audio
+.cache/
+test-audio/*
+!test-audio/README.md

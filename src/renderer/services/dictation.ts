@@ -40,6 +40,33 @@ export async function stopDictation(): Promise<void> {
   }
 }
 
+export async function selectAudioFile(): Promise<void> {
+  try {
+    const file = await unwrap(api.files.selectAudio());
+    if (file) useAppStore.getState().setSelectedAudioFile(file);
+  } catch (error) {
+    useAppStore.getState().fail(toUiError(error));
+  }
+}
+
+/** Transcribes the selected WAV file with the active model. Uses the same state machine as dictation. */
+export async function transcribeSelectedFile(): Promise<void> {
+  const store = useAppStore.getState();
+  const file = store.selectedAudioFile;
+  if (!file) return;
+  if (!store.transition('processing')) return;
+  try {
+    useAppStore.getState().transition('transcribing');
+    const transcript = await unwrap(api.transcription.transcribeFile(file.id));
+    useAppStore.getState().setTranscript(transcript);
+    useAppStore.getState().transition('idle');
+    void refreshHistory();
+  } catch (error) {
+    logger.warn('File transcription failed', error);
+    useAppStore.getState().fail(toUiError(error));
+  }
+}
+
 /** Shortcut, tray and the record button all call this. Ignored while busy. */
 export async function toggleDictation(): Promise<void> {
   const { currentState } = useAppStore.getState();

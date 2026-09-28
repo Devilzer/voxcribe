@@ -5,7 +5,9 @@ import type {
   AppSettings,
   AppState,
   AudioDevice,
+  DownloadProgress,
   ModelInfo,
+  SelectedAudioFile,
   Transcript,
 } from '@shared/types';
 import type { UiError } from '../types';
@@ -19,8 +21,12 @@ export interface AppStoreState {
   settings: AppSettings | null;
   models: ModelInfo[];
   devices: AudioDevice[];
-  /** Derived from settings + models. */
-  selectedModel: ModelInfo | null;
+  /** Derived from `settings.activeModelId` + models. */
+  activeModel: ModelInfo | null;
+  /** Latest download progress per model id (pushed by main). */
+  downloads: Record<string, DownloadProgress>;
+  /** WAV file chosen for file transcription. */
+  selectedAudioFile: SelectedAudioFile | null;
   /** Device id; `null` = system default. */
   selectedMicrophone: string | null;
 
@@ -43,6 +49,8 @@ export interface AppStoreActions {
   setDevices(devices: AudioDevice[]): void;
   setTranscript(transcript: Transcript | null): void;
   setHistory(history: Transcript[]): void;
+  setDownloadProgress(progress: DownloadProgress): void;
+  setSelectedAudioFile(file: SelectedAudioFile | null): void;
 }
 
 export type AppStore = AppStoreState & AppStoreActions;
@@ -54,7 +62,9 @@ export const initialAppState: AppStoreState = {
   settings: null,
   models: [],
   devices: [],
-  selectedModel: null,
+  activeModel: null,
+  downloads: {},
+  selectedAudioFile: null,
   selectedMicrophone: null,
   currentTranscript: null,
   history: [],
@@ -64,7 +74,7 @@ export const initialAppState: AppStoreState = {
 
 function resolveModel(settings: AppSettings | null, models: ModelInfo[]): ModelInfo | null {
   if (!settings) return null;
-  return models.find((model) => model.id === settings.selectedModelId) ?? null;
+  return models.find((model) => model.id === settings.activeModelId) ?? null;
 }
 
 export const useAppStore = create<AppStore>()((set, get) => ({
@@ -98,15 +108,20 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   setSettings: (settings) =>
     set((state) => ({
       settings,
-      selectedModel: resolveModel(settings, state.models),
+      activeModel: resolveModel(settings, state.models),
       selectedMicrophone: settings.microphoneId,
     })),
 
-  setModels: (models) => set((state) => ({ models, selectedModel: resolveModel(state.settings, models) })),
+  setModels: (models) => set((state) => ({ models, activeModel: resolveModel(state.settings, models) })),
 
   setDevices: (devices) => set({ devices }),
 
   setTranscript: (currentTranscript) => set({ currentTranscript }),
 
   setHistory: (history) => set({ history }),
+
+  setDownloadProgress: (progress) =>
+    set((state) => ({ downloads: { ...state.downloads, [progress.modelId]: progress } })),
+
+  setSelectedAudioFile: (selectedAudioFile) => set({ selectedAudioFile }),
 }));

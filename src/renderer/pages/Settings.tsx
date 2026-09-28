@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { SUPPORTED_LANGUAGES } from '@shared/constants';
 import type { AppSettings } from '@shared/types';
 import { PageHeader } from '../components/layout/AppShell';
-import { ModelList } from '../components/settings/ModelList';
+import { ModelManagement } from '../components/settings/ModelManagement';
 import { SettingsSection } from '../components/settings/SettingsSection';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -14,7 +14,6 @@ import type { UiError } from '../types';
 
 export function Settings() {
   const settings = useAppStore((state) => state.settings);
-  const models = useAppStore((state) => state.models);
   const devices = useAppStore((state) => state.devices);
   const [error, setError] = useState<UiError | null>(null);
 
@@ -31,12 +30,11 @@ export function Settings() {
         </p>
       )}
 
-      <SettingsSection title="Transcription Model" description="Models run locally. Downloads are coming soon.">
-        <ModelList
-          models={models}
-          selectedModelId={settings.selectedModelId}
-          onSelect={(selectedModelId) => void save({ selectedModelId })}
-        />
+      <SettingsSection
+        title="Speech Recognition"
+        description="Models are optional downloads from Hugging Face. They are checksum-verified and run entirely on this device."
+      >
+        <ModelManagement />
       </SettingsSection>
 
       <SettingsSection title="Microphone">

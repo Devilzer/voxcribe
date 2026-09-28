@@ -1,0 +1,28 @@
+{
+  "systeminfo": "AVX = 1 | AVX2 = 1",
+  "model": { "type": "base", "multilingual": true },
+  "params": { "model": "/models/ggml-base.bin", "language": "auto", "translate": false },
+  "result": { "language": "en" },
+  "transcription": [
+    {
+      "timestamps": { "from": "00:00:00,000", "to": "00:00:04,200" },
+      "offsets": { "from": 0, "to": 4200 },
+      "text": " Hello, this is a test of Voxcribe.",
+      "tokens": [
+        { "text": "[_BEG_]", "offsets": { "from": 0, "to": 0 }, "id": 50364, "p": 0.5 },
+        { "text": " Hello", "offsets": { "from": 0, "to": 500 }, "id": 2425, "p": 0.9 },
+        { "text": ",", "offsets": { "from": 500, "to": 600 }, "id": 11, "p": 0.8 }
+      ]
+    },
+    {
+      "timestamps": { "from": "00:00:04,200", "to": "00:00:06,000" },
+      "offsets": { "from": 4200, "to": 6000 },
+      "text": " [BLANK_AUDIO]"
+    },
+    {
+      "timestamps": { "from": "00:00:06,000", "to": "00:00:09,750" },
+      "offsets": { "from": 6000, "to": 9750 },
+      "text": " Everything runs locally."
+    }
+  ]
+}

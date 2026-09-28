@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toUserMessage } from '@shared/errors';
+import { getModelDownloadState, type DownloadProgress, type ModelInfo } from '@shared/types';
 import { canTransition } from '@shared/stateMachine';
 import { createTranscript, formatBytes, formatDuration, joinSegments, wordCount } from '@shared/transcript';
 
@@ -32,9 +33,20 @@ describe('transcript helpers', () => {
 
 describe('errors and state machine', () => {
   it('turns internal codes into friendly messages', () => {
-    expect(
-      toUserMessage({ code: 'WHISPER_MODEL_NOT_FOUND', message: 'x', details: { modelName: 'Whisper Small' } }),
-    ).toBe("Whisper Small isn't installed yet. Open Settings → Models to download it.");
+    expect(toUserMessage({ code: 'MODEL_NOT_INSTALLED', message: 'x', details: { modelName: 'Whisper Small' } })).toBe(
+      "Whisper Small isn't installed. Download it from Settings.",
+    );
+    expect(toUserMessage({ code: 'MODEL_CHECKSUM_MISMATCH', message: '/secret/path' })).not.toContain('/');
+  });
+
+  it('shows the model-management wording for each model state', () => {
+    const base = { installed: false, availability: 'available' } as ModelInfo;
+    expect(getModelDownloadState(base, undefined)).toBe('not-installed');
+    expect(getModelDownloadState(base, { status: 'downloading' } as DownloadProgress)).toBe('downloading');
+    expect(getModelDownloadState(base, { status: 'verifying' } as DownloadProgress)).toBe('verifying');
+    expect(getModelDownloadState(base, { status: 'failed' } as DownloadProgress)).toBe('error');
+    expect(getModelDownloadState({ ...base, installed: true }, { status: 'completed' } as DownloadProgress)).toBe('installed');
+    expect(getModelDownloadState({ ...base, availability: 'planned' } as ModelInfo, undefined)).toBe('unavailable');
   });
 
   it('allows retrying from error but not skipping steps', () => {

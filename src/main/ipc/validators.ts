@@ -51,13 +51,51 @@ const ACCELERATOR_PATTERN =
 
 const POST_PROCESSING_PROVIDERS: readonly PostProcessingProvider[] = ['none', 'ollama', 'lm-studio', 'llama.cpp'];
 
+/** Model id that exists in the registry. Anything else is rejected before reaching ModelManager. */
+export function registeredModelId(isRegistered: (id: string) => boolean): ArgsValidator<[string]> {
+  return (args) => {
+    const [id] = singleString('modelId', 128)(args);
+    if (!isRegistered(id)) throw new ValidationError(`Unknown model "${id}"`);
+    return [id];
+  };
+}
+
+/** Opaque id handed out by the audio file dialog. */
+export const audioFileId = singleString('fileId', 64);
+
+/** Settings the renderer may change with `settings.set`. The active model goes through `models.setActive`. */
+const RENDERER_SETTINGS_KEYS = ['microphoneId', 'language', 'shortcut', 'postProcessing', 'storage'] as const;
+
 export const settingsPatch: ArgsValidator<[Partial<AppSettings>]> = (args) => {
   if (args.length !== 1 || !isRecord(args[0])) throw new ValidationError('Settings patch must be an object');
   const input = args[0];
-  assertKnownKeys(input, ['selectedModelId', 'microphoneId', 'language', 'shortcut', 'postProcessing', 'storage'], 'settings');
+  assertKnownKeys(input, RENDERER_SETTINGS_KEYS, 'settings');
+  return [parseSettingsFields(input)];
+};
 
+/**
+ * Lenient parser for `settings.json`: keeps every valid field, drops invalid ones.
+ * `isRegisteredModel` guards `activeModelId` against stale/unknown ids.
+ */
+export function sanitizeStoredSettings(raw: unknown, isRegisteredModel: (id: string) => boolean): Partial<AppSettings> {
+  if (!isRecord(raw)) return {};
   const patch: Partial<AppSettings> = {};
-  if ('selectedModelId' in input) patch.selectedModelId = assertString(input.selectedModelId, 'selectedModelId');
+  for (const key of RENDERER_SETTINGS_KEYS) {
+    if (!(key in raw)) continue;
+    try {
+      Object.assign(patch, parseSettingsFields({ [key]: raw[key] }));
+    } catch {
+      // Ignore invalid stored value; the default is used instead.
+    }
+  }
+  if (typeof raw.activeModelId === 'string' && isRegisteredModel(raw.activeModelId)) {
+    patch.activeModelId = raw.activeModelId;
+  }
+  return patch;
+}
+
+function parseSettingsFields(input: Record<string, unknown>): Partial<AppSettings> {
+  const patch: Partial<AppSettings> = {};
   if ('microphoneId' in input) {
     patch.microphoneId = input.microphoneId === null ? null : assertString(input.microphoneId, 'microphoneId');
   }
@@ -92,5 +130,5 @@ export const settingsPatch: ArgsValidator<[Partial<AppSettings>]> = (args) => {
     assertKnownKeys(value, ['saveHistory'], 'storage');
     patch.storage = { saveHistory: assertBoolean(value.saveHistory, 'storage.saveHistory') };
   }
-  return [patch];
-};
+  return patch;
+}

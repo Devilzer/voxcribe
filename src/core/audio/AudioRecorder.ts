@@ -1,10 +1,11 @@
 import { ASR_CHANNELS, ASR_SAMPLE_RATE } from '@shared/constants';
 import { AudioError } from '../errors';
-import type { AudioDevice, AudioInput, AudioRecorderOptions, RecorderState } from './types';
+import type { PcmAudioInput } from '../asr/types';
+import type { AudioDevice, AudioRecorderOptions, RecorderState } from './types';
 
 export interface AudioRecorder {
   start(options?: AudioRecorderOptions): Promise<void>;
-  stop(): Promise<AudioInput>;
+  stop(): Promise<PcmAudioInput>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   getDevices(): Promise<AudioDevice[]>;
@@ -39,13 +40,14 @@ export class MockAudioRecorder implements AudioRecorder {
     this.pausedTotal = 0;
   }
 
-  async stop(): Promise<AudioInput> {
+  async stop(): Promise<PcmAudioInput> {
     if (this.state === 'idle') throw new AudioError('AUDIO_NOT_RECORDING', 'Recorder is not running');
     if (this.state === 'paused') await this.resume();
     const durationMs = Math.max(0, this.now() - this.startedAt - this.pausedTotal);
     this.state = 'idle';
     const sampleCount = Math.round((Math.min(durationMs, MOCK_MAX_SECONDS * 1000) / 1000) * ASR_SAMPLE_RATE);
     return {
+      kind: 'pcm',
       samples: new Float32Array(sampleCount),
       sampleRate: ASR_SAMPLE_RATE,
       channels: ASR_CHANNELS,

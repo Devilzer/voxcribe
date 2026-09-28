@@ -3,8 +3,10 @@ import type {
   AppPage,
   AppSettings,
   AudioDevice,
+  DownloadProgress,
   ModelInfo,
   RecordingResult,
+  SelectedAudioFile,
   Transcript,
 } from '@shared/types';
 
@@ -26,10 +28,22 @@ export interface VoxcribeAPI {
   transcription: {
     /** Transcribes the audio captured by the last `recording.stop()`. */
     transcribe(): Promise<IpcResult<Transcript>>;
+    /** Transcribes a file picked with `files.selectAudio()` (by its opaque id). */
+    transcribeFile(fileId: string): Promise<IpcResult<Transcript>>;
+  };
+  files: {
+    /** Opens the native file dialog in main. Resolves `null` when cancelled. */
+    selectAudio(): Promise<IpcResult<SelectedAudioFile | null>>;
   };
   models: {
     list(): Promise<IpcResult<ModelInfo[]>>;
     getInstalled(): Promise<IpcResult<ModelInfo[]>>;
+    /** Resolves when the model is downloaded and verified. Progress arrives via `events.onModelDownloadProgress`. */
+    download(modelId: string): Promise<IpcResult<ModelInfo>>;
+    cancelDownload(modelId: string): Promise<IpcResult<void>>;
+    delete(modelId: string): Promise<IpcResult<void>>;
+    getDownloadProgress(modelId: string): Promise<IpcResult<DownloadProgress | null>>;
+    setActive(modelId: string): Promise<IpcResult<AppSettings>>;
   };
   settings: {
     get(): Promise<IpcResult<AppSettings>>;
@@ -45,5 +59,6 @@ export interface VoxcribeAPI {
   events: {
     onDictationToggle(listener: (payload: { source: 'shortcut' | 'tray' }) => void): Unsubscribe;
     onNavigate(listener: (payload: { page: AppPage }) => void): Unsubscribe;
+    onModelDownloadProgress(listener: (progress: DownloadProgress) => void): Unsubscribe;
   };
 }

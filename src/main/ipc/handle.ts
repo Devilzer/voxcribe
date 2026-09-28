@@ -34,7 +34,8 @@ export function handle<C extends IpcChannel>(
       return { ok: true, data };
     } catch (error) {
       const payload = toErrorPayload(error);
-      context.logger.error(`IPC ${channel} failed: ${payload.code}`, payload);
+      const expected = payload.code === 'MODEL_DOWNLOAD_CANCELLED';
+      context.logger[expected ? 'info' : 'error'](`IPC ${channel} failed: ${payload.code}`, payload);
       return { ok: false, error: payload };
     }
   });

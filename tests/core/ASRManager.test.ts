@@ -1,105 +1,100 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ASRManager } from '@core/asr/ASRManager';
 import { MockASREngine } from '@core/asr/engines/MockASREngine';
-import { WhisperCppEngine } from '@core/asr/engines/WhisperCppEngine';
 import type { AudioInput } from '@core/asr/types';
-import { VoxcribeError } from '@core/errors';
 import { silentLogger } from '@core/logging/Logger';
+import { HttpModelDownloader } from '@core/models/ModelDownloader';
 import { LocalModelManager } from '@core/models/ModelManager';
-import { ModelRegistry } from '@core/models/ModelRegistry';
-import { NativeRuntimeLocator } from '@core/runtime/NativeRuntime';
-import { NATIVE_RUNTIMES } from '@core/runtime/runtimes';
+import { BUILTIN_MODELS, ModelRegistry } from '@core/models/ModelRegistry';
+import { Sha256ModelVerifier } from '@core/models/ModelVerifier';
+import { useTempDir } from '../helpers/fs';
+import { FAKE_MODEL_BYTES, fakeFetch, fakeModel } from '../helpers/models';
 
-const audio: AudioInput = { samples: new Float32Array(16_000), sampleRate: 16_000, channels: 1, durationMs: 1000 };
+const audio: AudioInput = { kind: 'pcm', samples: new Float32Array(16_000), sampleRate: 16_000, channels: 1, durationMs: 1000 };
 
-function setup(existingFiles: string[] = []) {
-  const fileExists = (path: string) => existingFiles.some((file) => path.endsWith(file));
-  const modelManager = new LocalModelManager({
-    registry: new ModelRegistry(),
-    modelsDir: '/data/models',
-    logger: silentLogger,
-    fileExists,
-  });
-  const manager = new ASRManager({ modelManager, logger: silentLogger });
-  const runtimeLocator = new NativeRuntimeLocator({
-    binariesDir: '/app/binaries',
-    definitions: NATIVE_RUNTIMES,
-    platform: 'linux',
-    arch: 'x64',
-    fileExists,
-  });
-  return { manager, modelManager, runtimeLocator };
+class TrackingEngine extends MockASREngine {
+  initializedWith: string[] = [];
+  disposed = 0;
+  override async initialize(modelPath: string) {
+    this.initializedWith.push(modelPath);
+    await super.initialize(modelPath);
+  }
+  override async dispose() {
+    this.disposed += 1;
+    await super.dispose();
+  }
 }
 
-async function expectCode(promise: Promise<unknown>, code: string) {
-  const error = await promise.then(
-    () => null,
-    (caught: unknown) => caught,
-  );
-  expect(error).toBeInstanceOf(VoxcribeError);
-  expect((error as VoxcribeError).code).toBe(code);
-  return error as VoxcribeError;
+async function setup(modelsDir: string, installed: boolean) {
+  const model = fakeModel();
+  const registry = new ModelRegistry([...BUILTIN_MODELS, model]);
+  const modelManager = new LocalModelManager({
+    registry,
+    downloader: new HttpModelDownloader({ fetch: fakeFetch({}).fetch }),
+    verifier: new Sha256ModelVerifier(),
+    modelsDir,
+    logger: silentLogger,
+  });
+  if (installed) {
+    await mkdir(join(modelsDir, 'whisper'), { recursive: true });
+    await writeFile(join(modelsDir, 'whisper', model.filename), FAKE_MODEL_BYTES);
+  }
+  const manager = new ASRManager({ modelManager, logger: silentLogger });
+  const engine = new TrackingEngine({ id: 'whisper' });
+  manager.registerEngine(engine);
+  return { manager, engine, model };
 }
 
 describe('ASRManager', () => {
-  it('registers engines and rejects duplicates', () => {
-    const { manager } = setup();
-    manager.registerEngine(new MockASREngine({ id: 'whisper' }));
-    expect(manager.listEngines().map((engine) => engine.id)).toEqual(['whisper']);
-    expect(() => manager.registerEngine(new MockASREngine({ id: 'whisper' }))).toThrow(VoxcribeError);
+  const tempDir = useTempDir();
+
+  it('rejects duplicate engines', async () => {
+    const { manager } = await setup(await tempDir(), false);
+    expect(() => manager.registerEngine(new MockASREngine({ id: 'whisper' }))).toThrow();
   });
 
-  it('selects the engine that matches the model and transcribes', async () => {
-    const { manager } = setup();
-    manager.registerEngine(new MockASREngine({ id: 'whisper' }));
-    await manager.selectModel('whisper-small');
-
-    expect(manager.getActiveEngine()?.id).toBe('whisper');
-    const transcript = await manager.transcribe(audio, { language: 'en' });
-    expect(transcript.text.length).toBeGreaterThan(0);
-    expect(transcript.engineId).toBe('whisper');
-    expect(transcript.modelId).toBe('whisper-small');
+  it('refuses to transcribe without an active model', async () => {
+    const { manager } = await setup(await tempDir(), false);
+    await expect(manager.transcribe(audio)).rejects.toMatchObject({ code: 'ASR_NO_MODEL_SELECTED' });
   });
 
-  it('refuses planned models and models without an engine', async () => {
-    const { manager } = setup();
-    manager.registerEngine(new MockASREngine({ id: 'whisper' }));
-    await expectCode(manager.selectModel('parakeet-tdt-0.6b-v3'), 'MODEL_NOT_AVAILABLE');
-    await expectCode(manager.selectModel('does-not-exist'), 'MODEL_NOT_FOUND');
+  it('refuses to transcribe with a model that is not installed', async () => {
+    const { manager, model } = await setup(await tempDir(), false);
+    await manager.selectModel(model.id);
+    await expect(manager.assertReady()).rejects.toMatchObject({
+      code: 'MODEL_NOT_INSTALLED',
+      details: { modelName: 'Fake Small' },
+    });
+    await expect(manager.transcribe(audio)).rejects.toMatchObject({ code: 'MODEL_NOT_INSTALLED' });
   });
 
-  it('requires a model before transcribing', async () => {
-    const { manager } = setup();
-    manager.registerEngine(new MockASREngine({ id: 'whisper' }));
-    await expectCode(manager.transcribe(audio), 'ASR_NO_MODEL_SELECTED');
+  it('initializes the engine with the installed model path once, then transcribes', async () => {
+    const dir = await tempDir();
+    const { manager, engine, model } = await setup(dir, true);
+    await manager.selectModel(model.id);
+
+    const first = await manager.transcribe(audio, { language: 'en' });
+    await manager.transcribe(audio);
+
+    expect(first).toMatchObject({ engineId: 'whisper', modelId: model.id });
+    expect(engine.initializedWith).toEqual([join(dir, 'whisper', model.filename)]);
   });
 
-  it('surfaces WHISPER_MODEL_NOT_FOUND with the model name when the file is missing', async () => {
-    const { manager, runtimeLocator } = setup();
-    manager.registerEngine(new WhisperCppEngine({ runtimeLocator, logger: silentLogger, fileExists: () => false }));
-    await manager.selectModel('whisper-small');
-    const error = await expectCode(manager.transcribe(audio), 'WHISPER_MODEL_NOT_FOUND');
-    expect(error.details?.modelName).toBe('Whisper Small');
+  it('disposes the engine when the model changes or the manager is disposed', async () => {
+    const { manager, engine, model } = await setup(await tempDir(), true);
+    await manager.selectModel(model.id);
+    await manager.transcribe(audio);
+    await manager.selectModel('whisper-base');
+    expect(engine.disposed).toBe(1);
+    await manager.dispose();
+    expect(manager.getActiveModelId()).toBeNull();
   });
 
-  it('WhisperCppEngine reports the missing native runtime, then not-implemented inference', async () => {
-    const modelFile = 'whisper/ggml-small.bin';
-    const { manager, runtimeLocator } = setup([modelFile]);
-    manager.registerEngine(
-      new WhisperCppEngine({ runtimeLocator, logger: silentLogger, fileExists: (path) => path.endsWith(modelFile) }),
-    );
-    await manager.selectModel('whisper-small');
-    await expectCode(manager.transcribe(audio), 'NATIVE_RUNTIME_NOT_FOUND');
-
-    const withBinary = setup([modelFile, 'whisper.cpp/linux-x64/whisper-cli']);
-    withBinary.manager.registerEngine(
-      new WhisperCppEngine({
-        runtimeLocator: withBinary.runtimeLocator,
-        logger: silentLogger,
-        fileExists: (path) => path.endsWith(modelFile),
-      }),
-    );
-    await withBinary.manager.selectModel('whisper-small');
-    await expectCode(withBinary.manager.transcribe(audio), 'ASR_NOT_IMPLEMENTED');
+  it('refuses planned models and unknown ids', async () => {
+    const { manager } = await setup(await tempDir(), false);
+    await expect(manager.selectModel('parakeet-tdt-0.6b-v3')).rejects.toMatchObject({ code: 'MODEL_NOT_AVAILABLE' });
+    await expect(manager.selectModel('nope')).rejects.toMatchObject({ code: 'MODEL_NOT_FOUND' });
   });
 });

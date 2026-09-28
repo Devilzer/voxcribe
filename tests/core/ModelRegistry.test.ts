@@ -1,53 +1,58 @@
 import { describe, expect, it } from 'vitest';
-import { silentLogger } from '@core/logging/Logger';
-import { LocalModelManager } from '@core/models/ModelManager';
-import { BUILTIN_MODELS, ModelRegistry } from '@core/models/ModelRegistry';
+import { BUILTIN_MODELS, ModelRegistry, validateModelDefinition } from '@core/models/ModelRegistry';
+import { fakeModel } from '../helpers/models';
 
 describe('ModelRegistry', () => {
-  it('contains the six Whisper models, none installed', () => {
-    const whisper = new ModelRegistry().listByEngine('whisper');
-    expect(whisper.map((model) => model.name)).toEqual([
-      'Whisper Tiny',
+  const registry = new ModelRegistry();
+
+  it('registers Whisper Base, Small and Large V3 Turbo for whisper.cpp', () => {
+    expect(registry.listByEngine('whisper').map((model) => model.name)).toEqual([
       'Whisper Base',
       'Whisper Small',
-      'Whisper Medium',
-      'Whisper Large V3',
       'Whisper Large V3 Turbo',
     ]);
-    expect(whisper.every((model) => !model.installed && model.runtime === 'whisper.cpp')).toBe(true);
   });
 
-  it('announces Parakeet as a planned model on its own engine/runtime', () => {
-    const parakeet = new ModelRegistry().get('parakeet-tdt-0.6b-v3');
-    expect(parakeet.engine).toBe('parakeet');
-    expect(parakeet.runtime).toBe('nemo-speech-cpp');
-    expect(parakeet.availability).toBe('planned');
-  });
-
-  it('has unique ids and rejects duplicates', () => {
+  it('has unique ids and filenames', () => {
     const ids = BUILTIN_MODELS.map((model) => model.id);
+    const files = BUILTIN_MODELS.map((model) => `${model.engine}/${model.filename}`);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(files).size).toBe(files.length);
+  });
+
+  it('pins URL, size and SHA-256 for every downloadable model', () => {
+    for (const model of BUILTIN_MODELS) {
+      if (model.availability !== 'available') continue;
+      expect(model.downloadUrl).toMatch(/^https:\/\/huggingface\.co\/ggerganov\/whisper\.cpp\/resolve\/[0-9a-f]{40}\//);
+      expect(model.downloadUrl.endsWith(`/${model.filename}`)).toBe(true);
+      expect(model.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(model.sizeBytes).toBeGreaterThan(0);
+      expect(model.filename).toMatch(/^ggml-[a-z0-9-]+\.bin$/);
+      expect(model.runtime).toBe('whisper.cpp');
+      expect(model.format).toBe('ggml');
+    }
+  });
+
+  it('keeps Parakeet as a planned model on its own engine/runtime', () => {
+    const parakeet = registry.get('parakeet-tdt-0.6b-v3');
+    expect(parakeet).toMatchObject({ engine: 'parakeet', runtime: 'nemo-speech-cpp', availability: 'planned' });
+    expect(() => registry.getDownloadable('parakeet-tdt-0.6b-v3')).toThrow(expect.objectContaining({ code: 'MODEL_NOT_AVAILABLE' }));
+  });
+
+  it('rejects duplicates and unknown ids', () => {
     expect(() => new ModelRegistry([...BUILTIN_MODELS, BUILTIN_MODELS[0]!])).toThrow(/Duplicate/);
+    expect(() => registry.get('nope')).toThrow(expect.objectContaining({ code: 'MODEL_NOT_FOUND' }));
+  });
+
+  it('rejects unsafe or incomplete definitions', () => {
+    expect(() => validateModelDefinition(fakeModel({ filename: '../evil.bin' }))).toThrow(/filename/);
+    expect(() => validateModelDefinition(fakeModel({ sha256: 'abc' }))).toThrow(/sha256/);
+    expect(() => validateModelDefinition(fakeModel({ downloadUrl: 'http://huggingface.co/x/ggml-fake.bin' }))).toThrow(/https/);
+    expect(() => validateModelDefinition(fakeModel({ sizeBytes: 0 }))).toThrow(/sizeBytes/);
   });
 
   it('returns copies so callers cannot mutate the catalog', () => {
-    const registry = new ModelRegistry();
-    registry.get('whisper-tiny').name = 'mutated';
-    expect(registry.get('whisper-tiny').name).toBe('Whisper Tiny');
-  });
-});
-
-describe('LocalModelManager', () => {
-  it('resolves model paths under <modelsDir>/<engine>/ and detects installed files', async () => {
-    const manager = new LocalModelManager({
-      registry: new ModelRegistry(),
-      modelsDir: '/user-data/models',
-      logger: silentLogger,
-      fileExists: (path) => path === '/user-data/models/whisper/ggml-base.bin',
-    });
-    expect(manager.getModelPath('whisper-base')).toBe('/user-data/models/whisper/ggml-base.bin');
-    expect(await manager.checkInstalled('whisper-base')).toBe(true);
-    expect((await manager.listInstalled()).map((model) => model.id)).toEqual(['whisper-base']);
-    await expect(manager.download('whisper-base')).rejects.toMatchObject({ code: 'MODEL_DOWNLOAD_NOT_IMPLEMENTED' });
+    registry.get('whisper-base').name = 'mutated';
+    expect(registry.get('whisper-base').name).toBe('Whisper Base');
   });
 });

@@ -24,7 +24,7 @@ export class MockASREngine implements ASREngine {
     multilingual: true,
     timestamps: true,
     translation: false,
-    sampleRates: [16_000],
+    fileFormats: ['wav'],
   };
 
   private initialized = false;
@@ -49,7 +49,7 @@ export class MockASREngine implements ASREngine {
     if (this.latencyMs > 0) await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
     const text = SAMPLE_PHRASES[this.calls % SAMPLE_PHRASES.length] ?? '';
     this.calls += 1;
-    const duration = audio.durationMs / 1000;
+    const duration = (audio.durationMs ?? 3000) / 1000;
     return createTranscript({
       language: config?.language === 'auto' || !config?.language ? 'en' : config.language,
       duration,

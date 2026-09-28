@@ -18,7 +18,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "npm run build && electron-builder",
-    "package:dir": "npm run build && electron-builder --dir"
+    "package:dir": "npm run build && electron-builder --dir",
+    "test:integration": "VOXCRIBE_INTEGRATION=1 vitest run tests/integration",
+    "whisper:build": "bash scripts/build-whisper-cpp.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

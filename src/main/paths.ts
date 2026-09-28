@@ -11,6 +11,11 @@ export interface AppPaths {
   modelsDir: string;
   logsDir: string;
   userDataDir: string;
+  settingsFile: string;
+  /** Scratch space for whisper.cpp output. */
+  tempDir: string;
+  /** Default folder for the audio file dialog (repo `test-audio/` in development). */
+  audioDialogDir: string;
 }
 
 export function resolveAppPaths(): AppPaths {
@@ -24,5 +29,8 @@ export function resolveAppPaths(): AppPaths {
     modelsDir: join(userDataDir, MODELS_DIR_NAME),
     logsDir: app.getPath('logs'),
     userDataDir,
+    settingsFile: join(userDataDir, 'settings.json'),
+    tempDir: app.getPath('temp'),
+    audioDialogDir: app.isPackaged ? app.getPath('music') : join(app.getAppPath(), 'test-audio'),
   };
 }

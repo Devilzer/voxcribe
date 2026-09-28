@@ -2,7 +2,6 @@ export const APP_NAME = 'Voxcribe';
 export const APP_ID = 'com.voxcribe.app';
 
 export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+Space';
-export const DEFAULT_MODEL_ID = 'whisper-small';
 export const DEFAULT_LANGUAGE = 'auto';
 
 /** whisper.cpp (and most local ASR engines) expect 16 kHz mono PCM. */
