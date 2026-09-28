@@ -1,0 +1,18 @@
+node_modules/
+out/
+dist/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+
+# Never commit models or native binaries
+resources/models/*
+!resources/models/.gitkeep
+resources/binaries/*
+!resources/binaries/.gitkeep
+*.bin
+*.gguf
+*.onnx
+*.nemo

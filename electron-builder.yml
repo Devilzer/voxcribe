@@ -1,0 +1,28 @@
+appId: com.voxcribe.app
+productName: Voxcribe
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+# Native binaries (whisper.cpp, later NeMo-Speech.cpp) ship next to the app.
+# Models are NOT bundled: they are downloaded into app.getPath("userData")/models at runtime.
+extraResources:
+  - from: resources/binaries
+    to: binaries
+    filter: ['**/*', '!.gitkeep']
+  - from: resources/icons
+    to: icons
+asar: true
+mac:
+  category: public.app-category.productivity
+  target: [dmg]
+  extendInfo:
+    NSMicrophoneUsageDescription: Voxcribe records your voice to transcribe it locally on this device.
+win:
+  target: [nsis]
+linux:
+  target: [AppImage, deb]
+  category: Utility
